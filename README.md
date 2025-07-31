@@ -36,14 +36,9 @@ npm install
 npm run build
 ```
 
-4. Set up environment variables:
-```bash
-cp env.example .env
-```
-
-Edit the `.env` file with your configuration:
+Edit an `.env` file with your configuration:
 ```env
-# Job Application URL (optional - can be passed as parameter)
+# Job Application URL (optional - can be passed as parameter as in `examples`.)
 JOB_URL=https://example.com/job-application
 
 # Browser Configuration
