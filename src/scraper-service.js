@@ -840,12 +840,6 @@ class JobApplicationScraper {
         await this.page.waitForTimeout(2000);
       }
 
-      // Take screenshot if requested
-      let screenshotPath = null;
-      if (defaultOptions.takeScreenshot) {
-        screenshotPath = await this.takeScreenshot(defaultOptions.screenshotName);
-      }
-
       // Get the appropriate data based on options
       let html = null;
       let formInputs = null;
@@ -883,8 +877,6 @@ class JobApplicationScraper {
         html,
         formInputs,
         timestamp: new Date().toISOString(),
-        userAgent: await this.page.evaluate(() => navigator.userAgent),
-        screenshot: screenshotPath,
         extractedData,
         pageTitle: await this.page.title(),
         pageUrl: this.page.url(),
@@ -895,28 +887,6 @@ class JobApplicationScraper {
     } catch (error) {
       console.error(`Failed to scrape page ${url}:`, error);
       throw error;
-    }
-  }
-
-  async takeScreenshot(name = null) {
-    try {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const filename = name || `screenshot-${timestamp}.png`;
-      const filepath = path.join(this.config.screenshotDir, filename);
-      
-      // Ensure screenshot directory exists
-      await fs.mkdir(this.config.screenshotDir, { recursive: true });
-      
-      await this.page.screenshot({ 
-        path: filepath, 
-        fullPage: true 
-      });
-      
-      console.log(`Screenshot saved: ${filepath}`);
-      return filepath;
-    } catch (error) {
-      console.error('Failed to take screenshot:', error);
-      return null;
     }
   }
 
