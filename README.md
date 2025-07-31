@@ -26,7 +26,12 @@ cd auto-form-test
 npm install
 ```
 
-3. Set up environment variables:
+3. Build the TypeScript code:
+```bash
+npm run build
+```
+
+4. Set up environment variables:
 ```bash
 cp env.example .env
 ```
@@ -49,10 +54,10 @@ TIMEOUT=30000
 
 ### Basic Usage
 
-```javascript
-const JobApplicationScraper = require('./src/scraper-service.js');
+```typescript
+import JobApplicationScraper from './dist/scraper-service.js';
 
-async function scrapeJobPage() {
+async function scrapeJobPage(): Promise<void> {
   const scraper = new JobApplicationScraper();
   
   try {
@@ -75,10 +80,10 @@ async function scrapeJobPage() {
 
 ### Advanced Usage with All Features
 
-```javascript
-const JobApplicationScraper = require('./src/scraper-service.js');
+```typescript
+import JobApplicationScraper from './dist/scraper-service.js';
 
-async function advancedScraping() {
+async function advancedScraping(): Promise<void> {
   const scraper = new JobApplicationScraper({
     screenshotDir: './screenshots',
     headless: false
@@ -98,7 +103,7 @@ async function advancedScraping() {
     });
     
     // Fill a form if found
-    if (result.success && result.scrapedData.extractedData.forms.length > 0) {
+    if (result.success && result.scrapedData?.extractedData.forms?.length) {
       await scraper.fillForm('#application-form', {
         'first-name': 'John',
         'last-name': 'Doe',
@@ -124,8 +129,6 @@ new JobApplicationScraper(config)
 ```
 
 **Config options:**
-- `apiEndpoint` (string): API endpoint URL
-- `apiKey` (string): API authentication key
 - `headless` (boolean): Run browser in headless mode
 - `timeout` (number): Request timeout in milliseconds
 - `screenshotDir` (string): Directory for screenshots
@@ -147,15 +150,11 @@ Scrapes a job application page.
   - `waitTime` (number): Time to wait after page load (ms)
   - `waitForSelector` (string): CSS selector to wait for
   - `scrollToBottom` (boolean): Whether to scroll to bottom
-  - `takeScreenshot` (boolean): Take screenshot
   - `screenshotName` (string): Screenshot filename
   - `extractForms` (boolean): Extract form information
   - `extractLinks` (boolean): Extract link information
 
 **Returns:** Object containing scraped data
-
-##### `takeScreenshot(name)`
-Takes a screenshot of the current page.
 
 ##### `extractForms()`
 Extracts form information from the page.
@@ -169,9 +168,6 @@ Fills a form with provided data.
 ##### `submitForm(formSelector)`
 Submits a form.
 
-##### `sendToAPI(data)`
-Sends scraped data to the configured API endpoint.
-
 ##### `processJobApplication(url, options)`
 Complete workflow: scrape page and send to API.
 
@@ -184,8 +180,6 @@ Closes the browser instance.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `API_ENDPOINT` | API endpoint URL | `http://localhost:3000/api/html` |
-| `API_KEY` | API authentication key | None |
 | `JOB_URL` | Default job application URL | None |
 | `HEADLESS` | Run browser in headless mode | `false` |
 | `TIMEOUT` | Request timeout (ms) | `30000` |
@@ -213,8 +207,11 @@ Closes the browser instance.
 Run the example scripts:
 
 ```bash
+# Build the TypeScript code
+npm run build
+
 # Run examples
-node examples/basic-usage.js
+node dist/examples/basic-usage.js
 
 # Or run the main service
 npm start
@@ -409,39 +406,6 @@ The service automatically saves API responses to JSON files with the following s
 - Customizable via `outputDir` option
 - Automatically created if they don't exist
 
-## API Data Format
-
-The service sends the following data structure to your API:
-
-```json
-{
-  "url": "https://example.com/job-application",
-  "formInputs": [
-    {
-      "inputType": "text",
-      "inputLabel": "First Name",
-      "id": "firstName",
-      "hidden": false
-    },
-    {
-      "inputType": "email",
-      "inputLabel": "Email Address",
-      "id": "email",
-      "hidden": false
-    }
-  ],
-  "timestamp": "2024-01-01T12:00:00.000Z",
-  "userAgent": "Mozilla/5.0...",
-  "screenshot": "/path/to/screenshot.png",
-  "extractedData": {
-    "forms": [...],
-    "links": [...]
-  },
-  "pageTitle": "Job Application",
-  "pageUrl": "https://example.com/job-application",
-  "isFormInputs": true
-}
-```
 
 ## Error Handling
 
@@ -449,20 +413,11 @@ The service includes comprehensive error handling:
 
 - Network timeouts
 - Page load failures
-- API communication errors
 - Browser initialization issues
 - Form interaction errors
 - Cookie popup handling errors
 
 All errors are logged and returned in the result object.
-
-## Security Considerations
-
-- Use environment variables for sensitive configuration
-- Implement proper API authentication
-- Consider rate limiting for target websites
-- Respect robots.txt and website terms of service
-- Use headless mode in production
 
 ## Troubleshooting
 
@@ -470,7 +425,6 @@ All errors are logged and returned in the result object.
 
 1. **Browser fails to launch**: Ensure you have the necessary system dependencies
 2. **Page timeout**: Increase the timeout value in configuration
-3. **API connection failed**: Check your API endpoint and authentication
 4. **Form not found**: Verify the CSS selector is correct
 5. **Cookie popup not accepted**: The service automatically handles most cookie popups, including iframe-based ones
 

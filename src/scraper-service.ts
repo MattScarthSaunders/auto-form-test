@@ -1,24 +1,84 @@
-const puppeteer = require('puppeteer');
-const axios = require('axios');
-const fs = require('fs').promises;
-const path = require('path');
-require('dotenv').config();
+import puppeteer, { Browser, Page } from 'puppeteer';
+import axios from 'axios';
+import { promises as fs } from 'fs';
+import path from 'path';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+interface ScraperConfig {
+  apiEndpoint?: string;
+  apiKey?: string;
+  headless?: boolean;
+  timeout?: number;
+  screenshotDir?: string;
+}
+
+interface ScrapingOptions {
+  waitTime?: number;
+  waitForSelector?: string;
+  scrollToBottom?: boolean;
+  takeScreenshot?: boolean;
+  screenshotName?: string;
+  extractForms?: boolean;
+  extractLinks?: boolean;
+  clickApplyButton?: boolean;
+  sendFormHTMLOnly?: boolean;
+  extractFormInputs?: boolean;
+  detectConditionalInputs?: boolean;
+  outputDir?: string;
+  includeFullHtml?: boolean;
+}
+
+interface FormInput {
+  inputType: string;
+  inputLabel: string;
+  id: string | undefined;
+  hidden: boolean;
+  conditional?: boolean;
+  iteration?: number;
+  triggeredBy?: string;
+  options?: Array<{ value: string; text: string }>;
+}
+
+interface ScrapedData {
+  url: string;
+  html?: string;
+  formInputs?: FormInput[];
+  timestamp: string;
+  extractedData: {
+    forms?: any[];
+    links?: any[];
+  };
+  pageTitle: string;
+  pageUrl: string;
+  isFormHTML?: boolean;
+  isFormInputs?: boolean;
+}
+
+interface ProcessResult {
+  success: boolean;
+  scrapedData?: ScrapedData;
+  error?: string;
+}
 
 class JobApplicationScraper {
-  constructor(config = {}) {
-    this.browser = null;
-    this.page = null;
+  private browser: Browser | null = null;
+  private page: Page | null = null;
+  private config: ScraperConfig;
+
+  constructor(config: ScraperConfig = {}) {
     this.config = {
       apiEndpoint: process.env.API_ENDPOINT || 'http://localhost:3000/api/html',
       apiKey: process.env.API_KEY,
       headless: process.env.HEADLESS === 'true' || false,
-      timeout: parseInt(process.env.TIMEOUT) || 30000,
+      timeout: parseInt(process.env.TIMEOUT || '30000'),
       screenshotDir: './screenshots',
       ...config
     };
   }
 
-  async initialize() {
+  async initialize(): Promise<void> {
     try {
       console.log('Launching browser...');
       this.browser = await puppeteer.launch({
@@ -37,9 +97,9 @@ class JobApplicationScraper {
       });
 
       this.page = await this.browser.newPage();
-
       await this.page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
       await this.page.setViewport({ width: 1920, height: 1080 });
+
       console.log('Browser initialized successfully');
     } catch (error) {
       console.error('Failed to initialize browser:', error);
@@ -47,15 +107,13 @@ class JobApplicationScraper {
     }
   }
 
-  async handleCookiePopup() {
+  async handleCookiePopup(): Promise<boolean> {
     try {
       console.log('Checking for cookie popup...');
       
-      // Wait a bit for the popup to appear
-      await this.page.waitForTimeout(2000);
+      await this.page!.waitForTimeout(2000);
 
-      // First, check for iframes that might contain cookie popups
-      const frames = this.page.frames();
+      const frames = this.page!.frames();
       console.log(`Found ${frames.length} frames on the page`);
       
       for (let i = 0; i < frames.length; i++) {
@@ -63,25 +121,19 @@ class JobApplicationScraper {
         console.log(`Checking frame ${i}: ${frame.url()}`);
         
         try {
-          // Common cookie popup selectors
           const cookieSelectors = [
-            // Accept all cookies button
             '[data-testid="accept-all-cookies"]',
             '[data-testid="cookie-accept-all"]',
             '.cookie-accept-all',
             '.accept-all-cookies',
             '#accept-all-cookies',
             '#cookie-accept-all',
-            
-            // Accept cookies button
             '[data-testid="accept-cookies"]',
             '[data-testid="cookie-accept"]',
             '.cookie-accept',
             '.accept-cookies',
             '#accept-cookies',
             '#cookie-accept',
-            
-            // Generic accept buttons
             'button:has-text("Accept")',
             'button:has-text("Accept All")',
             'button:has-text("Accept Cookies")',
@@ -89,15 +141,11 @@ class JobApplicationScraper {
             'button:has-text("OK")',
             'button:has-text("Got it")',
             'button:has-text("I Agree")',
-            
-            // More specific selectors
             '.cookie-banner button',
             '.cookie-notice button',
             '.cookie-popup button',
             '.gdpr-banner button',
             '.privacy-banner button',
-            
-            // Barhale specific (if any)
             '.cookie-consent button',
             '.cookie-modal button'
           ];
@@ -109,20 +157,18 @@ class JobApplicationScraper {
                 console.log(`Found cookie popup in frame ${i} with selector: ${selector}`);
                 await element.click();
                 console.log('Cookie popup accepted');
-                await this.page.waitForTimeout(1000); // Wait for popup to disappear
+                await this.page!.waitForTimeout(1000);
                 return true;
               }
             } catch (error) {
-              // Continue to next selector
               continue;
             }
           }
 
-          // Try clicking by text content in the frame
-          const acceptButtons = await frame.$$eval('button', buttons => {
+          const acceptButtons = await frame.$$eval('button', (buttons: Element[]) => {
             return buttons
-              .filter(button => {
-                const text = button.textContent.toLowerCase();
+              .filter((button: Element) => {
+                const text = (button as HTMLElement).textContent?.toLowerCase() || '';
                 return text.includes('accept') || 
                        text.includes('ok') || 
                        text.includes('got it') || 
@@ -130,51 +176,47 @@ class JobApplicationScraper {
                        text.includes('allow all') ||
                        text.includes('accept all');
               })
-              .map((button, index) => ({ text: button.textContent, index }));
+              .map((button: Element, index: number) => ({ 
+                text: (button as HTMLElement).textContent || '', 
+                index 
+              }));
           });
 
           if (acceptButtons.length > 0) {
             console.log(`Found accept buttons in frame ${i} by text:`, acceptButtons);
-            // Click the button directly using evaluate
-            await frame.evaluate((buttonText) => {
+            await frame.evaluate((buttonText: string) => {
               const buttons = Array.from(document.querySelectorAll('button'));
-              const button = buttons.find(btn => btn.textContent.toLowerCase().includes(buttonText.toLowerCase()));
+              const button = buttons.find(btn => (btn as HTMLElement).textContent?.toLowerCase().includes(buttonText.toLowerCase()));
               if (button) {
-                button.click();
+                (button as HTMLElement).click();
                 return true;
               }
               return false;
             }, acceptButtons[0].text);
             console.log('Cookie popup accepted by text');
-            await this.page.waitForTimeout(1000);
+            await this.page!.waitForTimeout(1000);
             return true;
           }
 
         } catch (error) {
-          console.log(`Error checking frame ${i}:`, error.message);
+          console.log(`Error checking frame ${i}:`, (error as Error).message);
           continue;
         }
       }
 
-      // Also check the main page for cookie popups
       const cookieSelectors = [
-        // Accept all cookies button
         '[data-testid="accept-all-cookies"]',
         '[data-testid="cookie-accept-all"]',
         '.cookie-accept-all',
         '.accept-all-cookies',
         '#accept-all-cookies',
         '#cookie-accept-all',
-        
-        // Accept cookies button
         '[data-testid="accept-cookies"]',
         '[data-testid="cookie-accept"]',
         '.cookie-accept',
         '.accept-cookies',
         '#accept-cookies',
         '#cookie-accept',
-        
-        // Generic accept buttons
         'button:has-text("Accept")',
         'button:has-text("Accept All")',
         'button:has-text("Accept Cookies")',
@@ -182,40 +224,34 @@ class JobApplicationScraper {
         'button:has-text("OK")',
         'button:has-text("Got it")',
         'button:has-text("I Agree")',
-        
-        // More specific selectors
         '.cookie-banner button',
         '.cookie-notice button',
         '.cookie-popup button',
         '.gdpr-banner button',
         '.privacy-banner button',
-        
-        // Barhale specific (if any)
         '.cookie-consent button',
         '.cookie-modal button'
       ];
 
       for (const selector of cookieSelectors) {
         try {
-          const element = await this.page.$(selector);
+          const element = await this.page!.$(selector);
           if (element) {
             console.log(`Found cookie popup on main page with selector: ${selector}`);
             await element.click();
             console.log('Cookie popup accepted');
-            await this.page.waitForTimeout(1000); // Wait for popup to disappear
+            await this.page!.waitForTimeout(1000);
             return true;
           }
         } catch (error) {
-          // Continue to next selector
           continue;
         }
       }
 
-      // Try clicking by text content on main page
-      const acceptButtons = await this.page.$$eval('button', buttons => {
+      const acceptButtons = await this.page!.$$eval('button', (buttons: Element[]) => {
         return buttons
-          .filter(button => {
-            const text = button.textContent.toLowerCase();
+          .filter((button: Element) => {
+            const text = (button as HTMLElement).textContent?.toLowerCase() || '';
             return text.includes('accept') || 
                    text.includes('ok') || 
                    text.includes('got it') || 
@@ -223,43 +259,43 @@ class JobApplicationScraper {
                    text.includes('allow all') ||
                    text.includes('accept all');
           })
-          .map((button, index) => ({ text: button.textContent, index }));
+          .map((button: Element, index: number) => ({ 
+            text: (button as HTMLElement).textContent || '', 
+            index 
+          }));
       });
 
       if (acceptButtons.length > 0) {
         console.log('Found accept buttons on main page by text:', acceptButtons);
-        // Click the button directly using evaluate
-        await this.page.evaluate((buttonText) => {
+        await this.page!.evaluate((buttonText: string) => {
           const buttons = Array.from(document.querySelectorAll('button'));
-          const button = buttons.find(btn => btn.textContent.toLowerCase().includes(buttonText.toLowerCase()));
+          const button = buttons.find(btn => (btn as HTMLElement).textContent?.toLowerCase().includes(buttonText.toLowerCase()));
           if (button) {
-            button.click();
+            (button as HTMLElement).click();
             return true;
           }
           return false;
         }, acceptButtons[0].text);
         console.log('Cookie popup accepted by text');
-        await this.page.waitForTimeout(1000);
+        await this.page!.waitForTimeout(1000);
         return true;
       }
 
       console.log('No cookie popup found or already accepted');
       return false;
     } catch (error) {
-      console.log('Error handling cookie popup:', error.message);
+      console.log('Error handling cookie popup:', (error as Error).message);
       return false;
     }
   }
 
-  async clickApplyButton() {
+  async clickApplyButton(): Promise<boolean> {
     try {
       console.log('Looking for Apply button...');
       
-      // Wait a bit for the page to be fully loaded after cookie popup
-      await this.page.waitForTimeout(2000);
+      await this.page!.waitForTimeout(2000);
       
-      // Try the specific selector first
-      const applyButton = await this.page.$('#MainPlaceholder_Info_ApplyNowButton1');
+      const applyButton = await this.page!.$('#MainPlaceholder_Info_ApplyNowButton1');
       if (applyButton) {
         console.log('Found Apply button with specific ID');
         await applyButton.click();
@@ -267,7 +303,6 @@ class JobApplicationScraper {
         return true;
       }
       
-      // Try alternative selectors
       const alternativeSelectors = [
         'input[name="ctl01$MainPlaceholder$Info$ApplyNowButton1"]',
         'input[value="Apply"]',
@@ -278,7 +313,7 @@ class JobApplicationScraper {
       
       for (const selector of alternativeSelectors) {
         try {
-          const button = await this.page.$(selector);
+          const button = await this.page!.$('selector');
           if (button) {
             console.log(`Found Apply button with selector: ${selector}`);
             await button.click();
@@ -290,25 +325,23 @@ class JobApplicationScraper {
         }
       }
       
-      // Try finding by text content
-      const applyButtons = await this.page.$$eval('input[type="submit"], button', elements => {
+      const applyButtons = await this.page!.$$eval('input[type="submit"], button', (elements: Element[]) => {
         return elements
-          .filter(el => {
-            const value = el.value || el.textContent || '';
+          .filter((el: Element) => {
+            const value = (el as HTMLInputElement).value || (el as HTMLElement).textContent || '';
             return value.toLowerCase().includes('apply');
           })
-          .map(el => ({
-            value: el.value || el.textContent,
-            id: el.id,
-            name: el.name,
-            className: el.className
+          .map((el: Element) => ({
+            value: (el as HTMLInputElement).value || (el as HTMLElement).textContent || '',
+            id: (el as HTMLElement).id,
+            name: (el as HTMLInputElement).name,
+            className: (el as HTMLElement).className
           }));
       });
       
       if (applyButtons.length > 0) {
         console.log('Found Apply buttons by text:', applyButtons);
-        // Click the first apply button found
-        await this.page.click(`input[value="${applyButtons[0].value}"], button:has-text("${applyButtons[0].value}")`);
+        await this.page!.click(`input[value="${applyButtons[0].value}"], button:has-text("${applyButtons[0].value}")`);
         console.log('Apply button clicked by text');
         return true;
       }
@@ -321,36 +354,32 @@ class JobApplicationScraper {
     }
   }
 
-  async extractFormHTML() {
+  async extractFormHTML(): Promise<string | null> {
     try {
       console.log('Extracting form HTML...');
       
-      const formHTML = await this.page.evaluate(() => {
+      const formHTML = await this.page!.evaluate(() => {
         const forms = Array.from(document.querySelectorAll('form'));
         if (forms.length === 0) {
           return null;
         }
         
-        // Function to clean form by removing value attributes and scripts
-        const cleanForm = (form, stripValues = true) => {
-          const cleanedForm = form.cloneNode(true);
+        const cleanForm = (form: Element, stripValues = true) => {
+          const cleanedForm = form.cloneNode(true) as Element;
           
           if (stripValues) {
-            // Remove value attributes from all input elements
             const inputs = cleanedForm.querySelectorAll('input, textarea, select');
             inputs.forEach(input => {
               if (input.hasAttribute('value')) {
                 input.removeAttribute('value');
               }
               
-              // Also clear the actual value property
-              if (input.value) {
-                input.value = '';
+              if ((input as HTMLInputElement).value) {
+                (input as HTMLInputElement).value = '';
               }
             });
           }
           
-          // Remove all script elements from the form
           const scripts = cleanedForm.querySelectorAll('script');
           scripts.forEach(script => {
             script.remove();
@@ -359,11 +388,9 @@ class JobApplicationScraper {
           return cleanedForm;
         };
         
-        // Return the first form's HTML, or all forms if multiple exist
         if (forms.length === 1) {
           return cleanForm(forms[0], true).outerHTML;
         } else {
-          // If multiple forms, return them all wrapped in a container
           const container = document.createElement('div');
           container.className = 'extracted-forms';
           forms.forEach(form => {
@@ -389,194 +416,75 @@ class JobApplicationScraper {
     }
   }
 
-  async extractFormInputs() {
-    try {
-      console.log('Extracting form inputs with labels...');
-      
-      const formInputs = await this.page.evaluate(() => {
-        const inputs = Array.from(document.querySelectorAll('form input, form textarea, form select'));
-        
-        return inputs.map(input => {
-          // Get the label associated with this input
-          let inputLabel = '';
-          
-          // Method 1: Check for explicit label association via 'for' attribute
-          if (input.id) {
-            const label = document.querySelector(`label[for="${input.id}"]`);
-            if (label) {
-              inputLabel = label.textContent.trim();
-            }
-          }
-          
-          // Method 2: Check if input is inside a label element
-          if (!inputLabel) {
-            const parentLabel = input.closest('label');
-            if (parentLabel) {
-              inputLabel = parentLabel.textContent.trim();
-            }
-          }
-          
-          // Method 3: Look for nearby label or text
-          if (!inputLabel) {
-            // Check previous sibling
-            let sibling = input.previousElementSibling;
-            while (sibling && !inputLabel) {
-              if (sibling.tagName === 'LABEL') {
-                inputLabel = sibling.textContent.trim();
-                break;
-              }
-              if (sibling.textContent.trim()) {
-                inputLabel = sibling.textContent.trim();
-                break;
-              }
-              sibling = sibling.previousElementSibling;
-            }
-            
-            // Check parent's previous sibling
-            if (!inputLabel && input.parentElement) {
-              sibling = input.parentElement.previousElementSibling;
-              while (sibling && !inputLabel) {
-                if (sibling.tagName === 'LABEL') {
-                  inputLabel = sibling.textContent.trim();
-                  break;
-                }
-                if (sibling.textContent.trim()) {
-                  inputLabel = sibling.textContent.trim();
-                  break;
-                }
-                sibling = sibling.previousElementSibling;
-              }
-            }
-          }
-          
-          // Method 4: Check for placeholder or aria-label
-          if (!inputLabel) {
-            inputLabel = input.placeholder || input.getAttribute('aria-label') || '';
-          }
-          
-          // Determine input type
-          let inputType = input.type || 'text';
-          if (input.tagName === 'TEXTAREA') {
-            inputType = 'textarea';
-          } else if (input.tagName === 'SELECT') {
-            inputType = 'select';
-          }
-          
-          // Check if input is hidden
-          const isHidden = input.type === 'hidden' || 
-                          input.style.display === 'none' || 
-                          input.style.visibility === 'hidden' ||
-                          input.hasAttribute('hidden') ||
-                          window.getComputedStyle(input).display === 'none' ||
-                          window.getComputedStyle(input).visibility === 'hidden';
-          
-          // Get options for select elements
-          let options = null;
-          if (input.tagName === 'SELECT') {
-            options = Array.from(input.options).map(option => ({
-              value: option.value,
-              text: option.textContent.trim()
-            }));
-          }
-          
-          return {
-            inputType: inputType,
-            inputLabel: inputLabel,
-            id: input.id || null,
-            hidden: isHidden,
-            options: options
-          };
-        }).filter(input => !input.hidden);
-      });
-      
-      if (formInputs.length > 0) {
-        console.log(`Form inputs extracted successfully: ${formInputs.length} inputs found`);
-        return formInputs;
-      } else {
-        console.log('No form inputs found on the page');
-        return [];
-      }
-    } catch (error) {
-      console.error('Failed to extract form inputs:', error);
-      return [];
-    }
-  }
-
-  async fillInputsWithDummyData() {
+  async fillInputsWithDummyData(): Promise<void> {
     try {
       console.log('Filling inputs with dummy data...');
       
-      await this.page.evaluate(() => {
+      await this.page!.evaluate(() => {
         const inputs = Array.from(document.querySelectorAll('form input, form textarea, form select'));
         
         inputs.forEach(input => {
-          // Skip hidden inputs
-          if (input.type === 'hidden' || 
-              input.style.display === 'none' || 
-              input.style.visibility === 'hidden' ||
+          if ((input as HTMLInputElement).type === 'hidden' || 
+              (input as HTMLElement).style.display === 'none' || 
+              (input as HTMLElement).style.visibility === 'hidden' ||
               input.hasAttribute('hidden') ||
-              window.getComputedStyle(input).display === 'none' ||
-              window.getComputedStyle(input).visibility === 'hidden') {
+              window.getComputedStyle(input as Element).display === 'none' ||
+              window.getComputedStyle(input as Element).visibility === 'hidden') {
             return;
           }
           
-          // Fill based on input type
-          switch (input.type) {
+          switch ((input as HTMLInputElement).type) {
             case 'text':
             case 'email':
-              input.value = 'test@example.com';
+              (input as HTMLInputElement).value = 'test@example.com';
               break;
             case 'tel':
-              input.value = '+1234567890';
+              (input as HTMLInputElement).value = '+1234567890';
               break;
             case 'number':
-              input.value = '42';
+              (input as HTMLInputElement).value = '42';
               break;
             case 'date':
-              input.value = '2024-01-01';
+              (input as HTMLInputElement).value = '2024-01-01';
               break;
             case 'url':
-              input.value = 'https://example.com';
+              (input as HTMLInputElement).value = 'https://example.com';
               break;
             case 'password':
-              input.value = 'testpassword123';
+              (input as HTMLInputElement).value = 'testpassword123';
               break;
             case 'checkbox':
-              input.checked = true;
+              (input as HTMLInputElement).checked = true;
               break;
             case 'radio':
-              if (input.name) {
-                // Check the first radio button in each group
-                const radios = document.querySelectorAll(`input[name="${input.name}"]`);
+              if ((input as HTMLInputElement).name) {
+                const radios = document.querySelectorAll(`input[name="${(input as HTMLInputElement).name}"]`);
                 if (radios[0] === input) {
-                  input.checked = true;
+                  (input as HTMLInputElement).checked = true;
                 }
               }
               break;
             default:
-              input.value = 'test';
+              (input as HTMLInputElement).value = 'test';
           }
           
-          // Trigger events to simulate user interaction
           input.dispatchEvent(new Event('input', { bubbles: true }));
           input.dispatchEvent(new Event('change', { bubbles: true }));
           input.dispatchEvent(new Event('blur', { bubbles: true }));
         });
         
-        // Handle textareas
         const textareas = Array.from(document.querySelectorAll('form textarea'));
         textareas.forEach(textarea => {
-          textarea.value = 'This is a test textarea content for form validation.';
+          (textarea as HTMLTextAreaElement).value = 'This is a test textarea content for form validation.';
           textarea.dispatchEvent(new Event('input', { bubbles: true }));
           textarea.dispatchEvent(new Event('change', { bubbles: true }));
           textarea.dispatchEvent(new Event('blur', { bubbles: true }));
         });
         
-        // Handle select elements
         const selects = Array.from(document.querySelectorAll('form select'));
         selects.forEach(select => {
-          if (select.options.length > 0) {
-            select.selectedIndex = 1; // Select second option (skip first if it's "Please select")
+          if ((select as HTMLSelectElement).options.length > 0) {
+            (select as HTMLSelectElement).selectedIndex = 1;
             select.dispatchEvent(new Event('change', { bubbles: true }));
           }
         });
@@ -584,19 +492,17 @@ class JobApplicationScraper {
       
       console.log('Inputs filled with dummy data');
       
-      // Wait a bit for any dynamic content to load
-      await this.page.waitForTimeout(2000);
+      await this.page!.waitForTimeout(2000);
       
     } catch (error) {
       console.error('Failed to fill inputs with dummy data:', error);
     }
   }
 
-  async extractFormInputsWithConditional() {
+  async extractFormInputsWithConditional(): Promise<FormInput[]> {
     try {
       console.log('Extracting form inputs with iterative conditional detection...');
       
-      // First pass: Extract initial inputs
       console.log('First pass: Extracting initial inputs...');
       const initialInputs = await this.extractFormInputs();
       let allInputs = [...initialInputs];
@@ -606,19 +512,15 @@ class JobApplicationScraper {
       while (newInputsFound) {
         console.log(`\nIteration ${iteration}: Filling inputs and detecting new ones...`);
         
-        // Fill all current inputs with dummy data
         await this.fillInputsWithDummyData();
         
-        // Extract inputs after filling
         const currentInputs = await this.extractFormInputs();
         
-        // Find new inputs that weren't in our collection
         const newInputs = this.findNewInputs(allInputs, currentInputs);
         
         if (newInputs.length > 0) {
           console.log(`Found ${newInputs.length} new conditional inputs in iteration ${iteration}`);
           
-          // Mark new inputs as conditional
           newInputs.forEach(input => {
             input.conditional = true;
             input.iteration = iteration;
@@ -632,7 +534,6 @@ class JobApplicationScraper {
         }
       }
       
-      // Now handle multiple choice inputs with 4 or fewer options
       console.log('\nHandling multiple choice inputs with 4 or fewer options...');
       const multipleChoiceInputs = allInputs.filter(input => 
         input.inputType === 'radio' || 
@@ -652,7 +553,7 @@ class JobApplicationScraper {
     }
   }
 
-  async tryAllMultipleChoiceOptions(input, allInputs) {
+  async tryAllMultipleChoiceOptions(input: FormInput, allInputs: FormInput[]): Promise<void> {
     try {
       console.log(`Trying all options for: ${input.inputLabel} (${input.inputType})`);
       
@@ -666,16 +567,16 @@ class JobApplicationScraper {
     }
   }
 
-  async tryAllRadioOptions(input, allInputs) {
+  async tryAllRadioOptions(input: FormInput, allInputs: FormInput[]): Promise<void> {
     try {
-      const radioOptions = await this.page.evaluate((inputId) => {
+      const radioOptions = await this.page!.evaluate((inputId: string) => {
         const radios = Array.from(document.querySelectorAll(`input[name="${inputId}"]`));
         return radios.map((radio, index) => ({
           index,
-          value: radio.value,
-          text: radio.nextElementSibling?.textContent?.trim() || radio.value
+          value: (radio as HTMLInputElement).value,
+          text: (radio.nextElementSibling as HTMLElement)?.textContent?.trim() || (radio as HTMLInputElement).value
         }));
-      }, input.id);
+      }, input.id!);
       
       if (radioOptions.length <= 4) {
         console.log(`  Radio group has ${radioOptions.length} options, trying each...`);
@@ -683,19 +584,16 @@ class JobApplicationScraper {
         for (let i = 0; i < radioOptions.length; i++) {
           console.log(`    Trying option ${i + 1}: ${radioOptions[i].text}`);
           
-          // Select this radio option
-          await this.page.evaluate((inputId, optionIndex) => {
+          await this.page!.evaluate((inputId: string, optionIndex: number) => {
             const radios = Array.from(document.querySelectorAll(`input[name="${inputId}"]`));
             if (radios[optionIndex]) {
-              radios[optionIndex].checked = true;
-              radios[optionIndex].dispatchEvent(new Event('change', { bubbles: true }));
+              (radios[optionIndex] as HTMLInputElement).checked = true;
+              (radios[optionIndex] as HTMLInputElement).dispatchEvent(new Event('change', { bubbles: true }));
             }
-          }, input.id, i);
+          }, input.id!, i);
           
-          // Wait for any dynamic content
-          await this.page.waitForTimeout(1000);
+          await this.page!.waitForTimeout(1000);
           
-          // Check for new inputs
           const currentInputs = await this.extractFormInputs();
           const newInputs = this.findNewInputs(allInputs, currentInputs);
           
@@ -714,18 +612,18 @@ class JobApplicationScraper {
     }
   }
 
-  async tryAllSelectOptions(input, allInputs) {
+  async tryAllSelectOptions(input: FormInput, allInputs: FormInput[]): Promise<void> {
     try {
-      const selectOptions = await this.page.evaluate((inputId) => {
-        const select = document.getElementById(inputId);
+      const selectOptions = await this.page!.evaluate((inputId: string) => {
+        const select = document.getElementById(inputId) as HTMLSelectElement;
         if (!select) return [];
         
         return Array.from(select.options).map((option, index) => ({
           index,
           value: option.value,
-          text: option.textContent.trim()
+          text: option.textContent?.trim() || ''
         }));
-      }, input.id);
+      }, input.id!);
       
       if (selectOptions.length <= 4) {
         console.log(`  Select has ${selectOptions.length} options, trying each...`);
@@ -733,19 +631,16 @@ class JobApplicationScraper {
         for (let i = 0; i < selectOptions.length; i++) {
           console.log(`    Trying option ${i + 1}: ${selectOptions[i].text}`);
           
-          // Select this option
-          await this.page.evaluate((inputId, optionIndex) => {
-            const select = document.getElementById(inputId);
+          await this.page!.evaluate((inputId: string, optionIndex: number) => {
+            const select = document.getElementById(inputId) as HTMLSelectElement;
             if (select && select.options[optionIndex]) {
               select.selectedIndex = optionIndex;
               select.dispatchEvent(new Event('change', { bubbles: true }));
             }
-          }, input.id, i);
+          }, input.id!, i);
           
-          // Wait for any dynamic content
-          await this.page.waitForTimeout(1000);
+          await this.page!.waitForTimeout(1000);
           
-          // Check for new inputs
           const currentInputs = await this.extractFormInputs();
           const newInputs = this.findNewInputs(allInputs, currentInputs);
           
@@ -764,7 +659,7 @@ class JobApplicationScraper {
     }
   }
 
-  findNewInputs(existingInputs, currentInputs) {
+  findNewInputs(existingInputs: FormInput[], currentInputs: FormInput[]): FormInput[] {
     const existingKeys = new Set(existingInputs.map(input => this.createInputKey(input)));
     
     return currentInputs.filter(input => {
@@ -773,55 +668,152 @@ class JobApplicationScraper {
     });
   }
 
-  createInputKey(input) {
-    // Create a unique key for an input based on its properties
+  createInputKey(input: FormInput): string {
     return `${input.id || 'no-id'}_${input.inputType}_${input.inputLabel}`;
   }
 
-  async scrapeJobPage(url, options = {}) {
+  async extractFormInputs(): Promise<FormInput[]> {
+    try {
+      console.log('Extracting form inputs with labels...');
+      
+      const formInputs = await this.page!.evaluate(() => {
+        const inputs = Array.from(document.querySelectorAll('form input, form textarea, form select'));
+        
+        return inputs.map(input => {
+          let inputLabel = '';
+          
+          if ((input as HTMLElement).id) {
+            const label = document.querySelector(`label[for="${(input as HTMLElement).id}"]`);
+            if (label) {
+              inputLabel = (label as HTMLElement).textContent?.trim() || '';
+            }
+          }
+          
+          if (!inputLabel) {
+            const parentLabel = input.closest('label');
+            if (parentLabel) {
+              inputLabel = (parentLabel as HTMLElement).textContent?.trim() || '';
+            }
+          }
+          
+          if (!inputLabel) {
+            let sibling = input.previousElementSibling;
+            while (sibling && !inputLabel) {
+              if (sibling.tagName === 'LABEL') {
+                inputLabel = (sibling as HTMLElement).textContent?.trim() || '';
+                break;
+              }
+              if ((sibling as HTMLElement).textContent?.trim()) {
+                inputLabel = (sibling as HTMLElement).textContent?.trim() || '';
+                break;
+              }
+              sibling = sibling.previousElementSibling;
+            }
+            
+            if (!inputLabel && input.parentElement) {
+              sibling = input.parentElement.previousElementSibling;
+              while (sibling && !inputLabel) {
+                if (sibling.tagName === 'LABEL') {
+                  inputLabel = (sibling as HTMLElement).textContent?.trim() || '';
+                  break;
+                }
+                if ((sibling as HTMLElement).textContent?.trim()) {
+                  inputLabel = (sibling as HTMLElement).textContent?.trim() || '';
+                  break;
+                }
+                sibling = sibling.previousElementSibling;
+              }
+            }
+          }
+          
+          if (!inputLabel) {
+            inputLabel = (input as HTMLInputElement).placeholder || input.getAttribute('aria-label') || '';
+          }
+          
+          let inputType = (input as HTMLInputElement).type || 'text';
+          if (input.tagName === 'TEXTAREA') {
+            inputType = 'textarea';
+          } else if (input.tagName === 'SELECT') {
+            inputType = 'select';
+          }
+          
+          const isHidden = (input as HTMLInputElement).type === 'hidden' || 
+                          (input as HTMLElement).style.display === 'none' || 
+                          (input as HTMLElement).style.visibility === 'hidden' ||
+                          input.hasAttribute('hidden') ||
+                          window.getComputedStyle(input as Element).display === 'none' ||
+                          window.getComputedStyle(input as Element).visibility === 'hidden';
+          
+          let options = null;
+          if (input.tagName === 'SELECT') {
+            options = Array.from((input as HTMLSelectElement).options).map(option => ({
+              value: option.value,
+              text: option.textContent?.trim() || ''
+            }));
+          }
+          
+          return {
+            inputType: inputType,
+            inputLabel: inputLabel,
+            id: (input as HTMLElement).id || undefined,
+            hidden: isHidden,
+            options: options || undefined
+          };
+        }).filter(input => !input.hidden);
+      });
+      
+      if (formInputs.length > 0) {
+        console.log(`Form inputs extracted successfully: ${formInputs.length} inputs found`);
+        return formInputs;
+      } else {
+        console.log('No form inputs found on the page');
+        return [];
+      }
+    } catch (error) {
+      console.error('Failed to extract form inputs:', error);
+      return [];
+    }
+  }
+
+  async scrapeJobPage(url: string, options: ScrapingOptions = {}): Promise<ScrapedData> {
     if (!this.page) {
       throw new Error('Browser not initialized. Call initialize() first.');
     }
 
-    const defaultOptions = {
+    const defaultOptions: ScrapingOptions = {
       waitTime: 3000,
-      waitForSelector: null,
+      waitForSelector: undefined,
       scrollToBottom: false,
       takeScreenshot: false,
-      screenshotName: null,
+      screenshotName: undefined,
       extractForms: false,
       extractLinks: false,
       clickApplyButton: false,
       sendFormHTMLOnly: true,
       extractFormInputs: true,
-      detectConditionalInputs: true, // New option to detect conditional inputs
+      detectConditionalInputs: true,
       ...options
     };
 
     try {
       console.log(`Navigating to: ${url}`);
       
-      // Navigate to the page
       await this.page.goto(url, {
         waitUntil: 'networkidle2',
         timeout: this.config.timeout
       });
 
-      // Handle cookie popup
       await this.handleCookiePopup();
 
-      // Click Apply button if requested
       if (defaultOptions.clickApplyButton) {
         await this.clickApplyButton();
       }
 
-      // Wait for additional time if specified
       if (defaultOptions.waitTime) {
         console.log(`Waiting for ${defaultOptions.waitTime}ms...`);
         await this.page.waitForTimeout(defaultOptions.waitTime);
       }
 
-      // Wait for specific selector if provided
       if (defaultOptions.waitForSelector) {
         console.log(`Waiting for selector: ${defaultOptions.waitForSelector}`);
         try {
@@ -831,7 +823,6 @@ class JobApplicationScraper {
         }
       }
 
-      // Scroll to load dynamic content if needed
       if (defaultOptions.scrollToBottom) {
         console.log('Scrolling to bottom to load dynamic content...');
         await this.page.evaluate(() => {
@@ -840,9 +831,8 @@ class JobApplicationScraper {
         await this.page.waitForTimeout(2000);
       }
 
-      // Get the appropriate data based on options
-      let html = null;
-      let formInputs = null;
+      let html: string | undefined = undefined;
+      let formInputs: FormInput[] | undefined = undefined;
       
       if (defaultOptions.extractFormInputs) {
         if (defaultOptions.detectConditionalInputs) {
@@ -852,7 +842,7 @@ class JobApplicationScraper {
         }
         console.log('Form inputs extracted successfully');
       } else if (defaultOptions.sendFormHTMLOnly) {
-        html = await this.extractFormHTML();
+        html = await this.extractFormHTML() || undefined;
         if (!html) {
           html = await this.page.content();
           console.log('No forms found, using full page HTML');
@@ -863,8 +853,7 @@ class JobApplicationScraper {
       
       console.log('Data harvested successfully');
 
-      // Extract additional data if requested
-      let extractedData = {};
+      let extractedData: { forms?: any[]; links?: any[] } = {};
       if (defaultOptions.extractForms) {
         extractedData.forms = await this.extractForms();
       }
@@ -880,8 +869,8 @@ class JobApplicationScraper {
         extractedData,
         pageTitle: await this.page.title(),
         pageUrl: this.page.url(),
-        isFormHTML: defaultOptions.sendFormHTMLOnly && html !== null,
-        isFormInputs: defaultOptions.extractFormInputs && formInputs !== null
+        isFormHTML: defaultOptions.sendFormHTMLOnly && html !== undefined,
+        isFormInputs: defaultOptions.extractFormInputs && formInputs !== undefined
       };
 
     } catch (error) {
@@ -890,23 +879,22 @@ class JobApplicationScraper {
     }
   }
 
-  async extractForms() {
+  async extractForms(): Promise<any[]> {
     try {
-      return await this.page.evaluate(() => {
+      return await this.page!.evaluate(() => {
         const forms = Array.from(document.querySelectorAll('form'));
         return forms.map((form, index) => ({
-          id: form.id || `form-${index}`,
-          action: form.action,
-          method: form.method,
+          id: (form as HTMLElement).id || `form-${index}`,
+          action: (form as HTMLFormElement).action,
+          method: (form as HTMLFormElement).method,
           inputs: Array.from(form.querySelectorAll('input, select, textarea')).map(input => ({
-            type: input.type,
-            name: input.name,
-            id: input.id,
-            placeholder: input.placeholder,
-            required: input.required,
-            // Don't include the actual value to keep data clean
-            hasValue: input.value && input.value.trim() !== '',
-            valueLength: input.value ? input.value.length : 0
+            type: (input as HTMLInputElement).type,
+            name: (input as HTMLInputElement).name,
+            id: (input as HTMLElement).id,
+            placeholder: (input as HTMLInputElement).placeholder,
+            required: (input as HTMLInputElement).required,
+            hasValue: (input as HTMLInputElement).value && (input as HTMLInputElement).value.trim() !== '',
+            valueLength: (input as HTMLInputElement).value ? (input as HTMLInputElement).value.length : 0
           }))
         }));
       });
@@ -916,14 +904,14 @@ class JobApplicationScraper {
     }
   }
 
-  async extractLinks() {
+  async extractLinks(): Promise<any[]> {
     try {
-      return await this.page.evaluate(() => {
+      return await this.page!.evaluate(() => {
         const links = Array.from(document.querySelectorAll('a[href]'));
         return links.map(link => ({
-          text: link.textContent.trim(),
-          href: link.href,
-          title: link.title
+          text: (link as HTMLElement).textContent?.trim() || '',
+          href: (link as HTMLAnchorElement).href,
+          title: (link as HTMLAnchorElement).title
         }));
       });
     } catch (error) {
@@ -932,47 +920,41 @@ class JobApplicationScraper {
     }
   }
 
-  async processJobApplication(url, options = {}) {
+  async processJobApplication(url: string, options: ScrapingOptions = {}): Promise<ProcessResult> {
     try {
-      // Scrape the page
       const scrapedData = await this.scrapeJobPage(url, options);
       
-      // Save API response to JSON file
       await this.saveResponseToFile(url, scrapedData, options);
       
       return {
         success: true,
-        scrapedData,
+        scrapedData
       };
     } catch (error) {
       console.error('Failed to process job application:', error);
       return {
         success: false,
-        error: error.message
+        error: (error as Error).message
       };
     }
   }
 
-  async saveResponseToFile(url, scrapedData, options = {}) {
+  async saveResponseToFile(url: string, scrapedData: ScrapedData, options: ScrapingOptions = {}): Promise<string | null> {
     try {
-      // Create output directory if it doesn't exist
       const outputDir = options.outputDir || './output';
       await fs.mkdir(outputDir, { recursive: true });
       
-      // Generate filename with timestamp and sanitized URL
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const urlSlug = url.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
       const filename = `response_${urlSlug}_${timestamp}.json`;
       const filepath = path.join(outputDir, filename);
       
-      // Prepare the data to save
       const outputData = {
         pageTitle: scrapedData.pageTitle,
         timestamp: scrapedData.timestamp,
         inputs: scrapedData.formInputs,
       };
       
-      // Write to file
       await fs.writeFile(filepath, JSON.stringify(outputData, null, 2));
       console.log(`API response saved to: ${filepath}`);
       
@@ -983,7 +965,7 @@ class JobApplicationScraper {
     }
   }
 
-  async close() {
+  async close(): Promise<void> {
     if (this.browser) {
       console.log('Closing browser...');
       await this.browser.close();
@@ -993,4 +975,4 @@ class JobApplicationScraper {
   }
 }
 
-module.exports = JobApplicationScraper; 
+export default JobApplicationScraper; 

@@ -1,7 +1,7 @@
-const JobApplicationScraper = require('../src/scraper-service.js');
+import JobApplicationScraper from '../src/scraper-service.js';
 
 // Advanced usage example with all features
-async function advancedExample() {
+async function advancedExample(): Promise<void> {
   const scraper = new JobApplicationScraper({
     screenshotDir: './screenshots',
     headless: false
@@ -25,7 +25,7 @@ async function advancedExample() {
     });
     
     // Log the structured form inputs
-    if (result.success && result.scrapedData.formInputs) {
+    if (result.success && result.scrapedData?.formInputs) {
       const totalInputs = result.scrapedData.formInputs.length;
       const conditionalInputs = result.scrapedData.formInputs.filter(i => i.conditional).length;
       const hiddenInputs = result.scrapedData.formInputs.filter(i => i.hidden).length;
@@ -39,7 +39,7 @@ async function advancedExample() {
       console.log(`  Triggered by multiple choice: ${triggeredInputs}`);
       
       // Group by iteration
-      const inputsByIteration = {};
+      const inputsByIteration: { [key: number]: any[] } = {};
       result.scrapedData.formInputs.forEach(input => {
         const iteration = input.iteration || 0;
         if (!inputsByIteration[iteration]) {
@@ -50,7 +50,7 @@ async function advancedExample() {
       
       console.log(`\n🔄 Inputs by iteration:`);
       Object.keys(inputsByIteration).sort((a, b) => parseInt(a) - parseInt(b)).forEach(iteration => {
-        console.log(`  Iteration ${iteration}: ${inputsByIteration[iteration].length} inputs`);
+        console.log(`  Iteration ${iteration}: ${inputsByIteration[parseInt(iteration)].length} inputs`);
       });
     }
     
@@ -62,13 +62,13 @@ async function advancedExample() {
 }
 
 // Run the advanced example
-async function runExample() {
+async function runExample(): Promise<void> {
   console.log('=== Running Advanced Example ===');
   await advancedExample();
 }
 
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   runExample();
 }
 
-module.exports = { advancedExample }; 
+export { advancedExample }; 
