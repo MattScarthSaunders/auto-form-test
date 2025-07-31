@@ -1,13 +1,23 @@
 {
   "name": "auto-form-test",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Puppeteer service for job application page interaction",
+  "main": "src/scraper-service.js",
   "scripts": {
+    "start": "node src/scraper-service.js",
+    "dev": "nodemon src/scraper-service.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": ["puppeteer", "scraping", "job-application"],
   "author": "",
   "license": "ISC",
-  "type": "commonjs"
+  "type": "commonjs",
+  "dependencies": {
+    "puppeteer": "^21.5.2",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
 }
