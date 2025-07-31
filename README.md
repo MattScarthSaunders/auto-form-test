@@ -1,6 +1,12 @@
 # Job Application Scraper Service
 
-A Node.js service that uses Puppeteer to interact with job application pages, harvest HTML content, and send it to a specified API endpoint.
+## Disclaimer
+
+This project as of right now was very rapidly developed as a proof-of-concept, it was mostly 'vibe-coded' and should not be trusted to do anything good. I haven't tested it thoroughly, I haven't checked the code particularly, and I won't maintain it in it's current state. Use it at your own risk. 
+
+---
+
+A Node.js service that uses Puppeteer to interact with job application pages, harvest HTML content, and stores form data locally.
 
 ## Features
 
@@ -8,7 +14,6 @@ A Node.js service that uses Puppeteer to interact with job application pages, ha
 - **Cookie Popup Handling**: Automatically detect and accept cookie popups (including iframe-based ones)
 - **Form Interaction**: Fill and submit forms automatically
 - **Screenshot Capture**: Take screenshots of pages for debugging
-- **API Integration**: Send harvested data to your specified API endpoint
 - **Configurable Options**: Customize wait times, selectors, and behavior
 - **Error Handling**: Robust error handling and logging
 - **Anti-Detection**: User agent spoofing and request interception
@@ -38,10 +43,6 @@ cp env.example .env
 
 Edit the `.env` file with your configuration:
 ```env
-# API Configuration
-API_ENDPOINT=http://localhost:3000/api/html
-API_KEY=your_api_key_here
-
 # Job Application URL (optional - can be passed as parameter)
 JOB_URL=https://example.com/job-application
 
@@ -169,7 +170,7 @@ Fills a form with provided data.
 Submits a form.
 
 ##### `processJobApplication(url, options)`
-Complete workflow: scrape page and send to API.
+Complete workflow: scrape page and store result locally.
 
 ##### `close()`
 Closes the browser instance.
@@ -198,7 +199,6 @@ Closes the browser instance.
 | `outputDir` | string | Directory to save JSON response files |
 | `includeFullHtml` | boolean | Include full HTML in JSON output file |
 | `clickApplyButton` | boolean | Click Apply button after cookie popup |
-| `sendFormHTMLOnly` | boolean | Send only form HTML to API (default: true) |
 | `extractFormInputs` | boolean | Extract structured input data (default: true) |
 | `detectConditionalInputs` | boolean | Detect conditional inputs with two-pass approach (default: true) |
 
@@ -216,26 +216,6 @@ node dist/examples/basic-usage.js
 # Or run the main service
 npm start
 ```
-
-## Form HTML Extraction
-
-The service can extract and send only form HTML to your API, making it much more efficient:
-
-- **Default behavior**: Extracts only form HTML (much smaller payload)
-- **Fallback**: If no forms found, sends full page HTML
-- **Multiple forms**: If multiple forms exist, extracts all of them
-- **Configurable**: Can be disabled to send full page HTML
-- **Value stripping**: Automatically removes pre-filled values from inputs
-- **Script removal**: Removes all `<script>` elements for cleaner data
-
-### Form HTML Structure
-
-When `sendFormHTMLOnly: true` (default):
-- Single form: Returns the form's outerHTML
-- Multiple forms: Returns all forms wrapped in a container div
-- **Clean data**: All `value` attributes are stripped from inputs
-- **No pre-filled data**: Form inputs are returned empty for clean processing
-- **No scripts**: All `<script>` elements are removed for security and cleanliness
 
 ## Form Input Extraction
 
@@ -371,7 +351,7 @@ The service uses multiple methods to find input labels:
 
 ## JSON Output Files
 
-The service automatically saves API responses to JSON files with the following structure:
+The service automatically saves results to JSON files with the following structure:
 
 ```json
 {
@@ -395,7 +375,6 @@ The service automatically saves API responses to JSON files with the following s
       "links": [...]
     }
   },
-  "apiResponse": { ... }
 }
 ```
 

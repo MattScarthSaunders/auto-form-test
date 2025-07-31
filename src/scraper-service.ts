@@ -7,8 +7,6 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 interface ScraperConfig {
-  apiEndpoint?: string;
-  apiKey?: string;
   headless?: boolean;
   timeout?: number;
   screenshotDir?: string;
@@ -69,8 +67,6 @@ class JobApplicationScraper {
 
   constructor(config: ScraperConfig = {}) {
     this.config = {
-      apiEndpoint: process.env.API_ENDPOINT || 'http://localhost:3000/api/html',
-      apiKey: process.env.API_KEY,
       headless: process.env.HEADLESS === 'true' || false,
       timeout: parseInt(process.env.TIMEOUT || '30000'),
       screenshotDir: './screenshots',
@@ -557,8 +553,9 @@ class JobApplicationScraper {
       let allInputs = [...initialInputs];
       let iteration = 1;
       let newInputsFound = true;
+      const maxIterations = 5; // Prevent infinite loops
       
-      while (newInputsFound) {
+      while (newInputsFound && iteration <= maxIterations) {
         console.log(`\nIteration ${iteration}: Filling inputs and detecting new ones...`);
         
         await this.fillInputsWithDummyData();
@@ -569,6 +566,11 @@ class JobApplicationScraper {
         
         if (newInputs.length > 0) {
           console.log(`Found ${newInputs.length} new conditional inputs in iteration ${iteration}`);
+          
+          // Log the new inputs for debugging
+          newInputs.forEach((input, index) => {
+            console.log(`  New input ${index + 1}: ${input.inputLabel} (${input.inputType}) - ID: ${input.id}`);
+          });
           
           newInputs.forEach(input => {
             input.conditional = true;
@@ -581,6 +583,10 @@ class JobApplicationScraper {
           console.log(`No new inputs found in iteration ${iteration}, stopping`);
           newInputsFound = false;
         }
+      }
+      
+      if (iteration > maxIterations) {
+        console.log(`\n⚠️  Reached maximum iterations (${maxIterations}), stopping to prevent infinite loop`);
       }
       
       console.log('\nHandling multiple choice inputs with 4 or fewer options...');
@@ -711,14 +717,43 @@ class JobApplicationScraper {
   findNewInputs(existingInputs: FormInput[], currentInputs: FormInput[]): FormInput[] {
     const existingKeys = new Set(existingInputs.map(input => this.createInputKey(input)));
     
-    return currentInputs.filter(input => {
+    const newInputs = currentInputs.filter(input => {
       const key = this.createInputKey(input);
-      return !existingKeys.has(key);
+      const isNew = !existingKeys.has(key);
+      
+      // Additional check: don't add inputs with the same label and type
+      const hasSameLabelAndType = existingInputs.some(existing => 
+        existing.inputLabel.trim().toLowerCase() === input.inputLabel.trim().toLowerCase() &&
+        existing.inputType === input.inputType
+      );
+      
+      if (isNew && !hasSameLabelAndType) {
+        console.log(`    Detected new input: ${input.inputLabel} (${input.inputType}) - Key: ${key}`);
+      } else if (isNew && hasSameLabelAndType) {
+        console.log(`    Skipping duplicate input: ${input.inputLabel} (${input.inputType}) - same label/type exists`);
+      }
+      
+      return isNew && !hasSameLabelAndType;
     });
+    
+    console.log(`    Comparing ${existingInputs.length} existing vs ${currentInputs.length} current inputs`);
+    console.log(`    Found ${newInputs.length} truly new inputs`);
+    
+    return newInputs;
   }
 
   createInputKey(input: FormInput): string {
-    return `${input.id || 'no-id'}_${input.inputType}_${input.inputLabel}`;
+    // Create a more stable key that doesn't rely on changing IDs
+    const label = input.inputLabel.trim().toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const type = input.inputType.toLowerCase();
+    
+    // Only include ID if it's a stable one (not auto-generated)
+    const id = input.id && !input.id.includes('input') && !input.id.includes('tel-input') 
+      ? input.id.toLowerCase().replace(/[^a-z0-9]/g, '_') 
+      : '';
+    
+    // Use label and type as primary identifiers, ID as secondary
+    return id ? `${type}_${label}_${id}` : `${type}_${label}`;
   }
 
   async extractFormInputs(): Promise<FormInput[]> {
@@ -1005,7 +1040,7 @@ class JobApplicationScraper {
       };
       
       await fs.writeFile(filepath, JSON.stringify(outputData, null, 2));
-      console.log(`API response saved to: ${filepath}`);
+      console.log(`Result saved to: ${filepath}`);
       
       return filepath;
     } catch (error) {
