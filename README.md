@@ -6,16 +6,12 @@ status: very experimental, proof-of-concept.
 
 A Node.js service that uses Puppeteer to interact with job application pages, harvest HTML content, and stores form data locally.
 
-## Installation
+## Installation & running
 
 
 ```bash
 npm install
-npm run build
-
-node dist/examples/basic-usage.js (example run)
 ```
-
 
 Edit an `.env` file with your configuration:
 ```env
@@ -25,6 +21,11 @@ JOB_URL=https://example.com/job-application
 # Browser Configuration
 HEADLESS=false
 TIMEOUT=30000
+```
+
+```bash
+npm run build
+node dist/examples/basic-usage.js (example run)
 ```
 
 ## Usage

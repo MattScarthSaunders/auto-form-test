@@ -1,7 +1,12 @@
+import { FormInput, ProcessResult } from '../src/schema/index.js';
 import JobApplicationScraper from '../src/scraper-service.js';
+import dotenv from 'dotenv';
 
-// Advanced usage example with all features
-async function advancedExample(): Promise<void> {
+dotenv.config();
+
+export async function example(): Promise<void> {
+  console.log('=== Running Example ===');
+
   const scraper = new JobApplicationScraper({
     screenshotDir: './screenshots',
     headless: false
@@ -10,49 +15,14 @@ async function advancedExample(): Promise<void> {
   try {
     await scraper.initialize();
     
-    const result = await scraper.processJobApplication('https://barhale.kallidusrecruit.com/VacancyInformation.aspx?VId=1213', {
-      waitTime: 5000,
+    const result = await scraper.processJobApplication(process.env.JOB_URL ?? '', {
+      waitTime: 2000,
       scrollToBottom: true,
-      takeScreenshot: true,
-      screenshotName: 'barhale-job-application.png',
-      extractForms: true,
-      extractLinks: true,
       outputDir: './output/advanced',
-      includeFullHtml: false,
       clickApplyButton: true,
-      extractFormInputs: true,
-      detectConditionalInputs: true
     });
     
-    // Log the structured form inputs
-    if (result.success && result.scrapedData?.formInputs) {
-      const totalInputs = result.scrapedData.formInputs.length;
-      const conditionalInputs = result.scrapedData.formInputs.filter(i => i.conditional).length;
-      const hiddenInputs = result.scrapedData.formInputs.filter(i => i.hidden).length;
-      const triggeredInputs = result.scrapedData.formInputs.filter(i => i.triggeredBy).length;
-      
-      console.log(`\n📊 Summary:`);
-      console.log(`  Total inputs: ${totalInputs}`);
-      console.log(`  Conditional inputs: ${conditionalInputs}`);
-      console.log(`  Hidden inputs: ${hiddenInputs}`);
-      console.log(`  Visible inputs: ${totalInputs - hiddenInputs}`);
-      console.log(`  Triggered by multiple choice: ${triggeredInputs}`);
-      
-      // Group by iteration
-      const inputsByIteration: { [key: number]: any[] } = {};
-      result.scrapedData.formInputs.forEach(input => {
-        const iteration = input.iteration || 0;
-        if (!inputsByIteration[iteration]) {
-          inputsByIteration[iteration] = [];
-        }
-        inputsByIteration[iteration].push(input);
-      });
-      
-      console.log(`\n🔄 Inputs by iteration:`);
-      Object.keys(inputsByIteration).sort((a, b) => parseInt(a) - parseInt(b)).forEach(iteration => {
-        console.log(`  Iteration ${iteration}: ${inputsByIteration[parseInt(iteration)].length} inputs`);
-      });
-    }
+    logResultSummary(result)
     
   } catch (error) {
     console.error('Advanced example error:', error);
@@ -61,14 +31,38 @@ async function advancedExample(): Promise<void> {
   }
 }
 
-// Run the advanced example
-async function runExample(): Promise<void> {
-  console.log('=== Running Advanced Example ===');
-  await advancedExample();
+function logResultSummary(result: ProcessResult) {
+  if (result.success && result.scrapedData?.formInputs) {
+    const totalInputs = result.scrapedData.formInputs.length;
+    const conditionalInputs = result.scrapedData.formInputs.filter(i => i.conditional).length;
+    const hiddenInputs = result.scrapedData.formInputs.filter(i => i.hidden).length;
+    const triggeredInputs = result.scrapedData.formInputs.filter(i => i.triggeredBy).length;
+    
+    console.log(`\n📊 Summary:`, {
+      totalInputs,
+      conditionalInputs,
+      hiddenInputs,
+      visibleInputs: totalInputs - hiddenInputs,
+      triggeredInputs
+    });
+    
+    const inputsByIteration: { [key: number]: FormInput[] } = {};
+    for (const input of result.scrapedData.formInputs) {
+      const iteration = input.iteration || 0;
+      if (!inputsByIteration[iteration]) {
+        inputsByIteration[iteration] = [];
+      }
+      inputsByIteration[iteration].push(input);
+    };
+    
+    console.log(`\n🔄 Inputs by iteration:`);
+    const sortedInputs = Object.keys(inputsByIteration).sort((a, b) => parseInt(a) - parseInt(b))
+    for (const iteration of sortedInputs) {
+      console.log(`  Iteration ${iteration}: ${inputsByIteration[parseInt(iteration)].length} inputs`);
+    };
+  }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  runExample();
+  example();
 }
-
-export { advancedExample }; 
