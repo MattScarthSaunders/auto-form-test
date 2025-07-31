@@ -295,20 +295,24 @@ class JobApplicationScraper {
       
       await this.page!.waitForTimeout(2000);
       
-      const applyButton = await this.page!.$('#MainPlaceholder_Info_ApplyNowButton1');
-      if (applyButton) {
-        console.log('Found Apply button with specific ID');
-        await applyButton.click();
-        console.log('Apply button clicked');
-        return true;
-      }
-      
       const alternativeSelectors = [
-        'input[name="ctl01$MainPlaceholder$Info$ApplyNowButton1"]',
         'input[value="Apply"]',
-        '.AdvortoApplyNowButton',
+        'input[value="Apply Now"]',
+        'input[value="Apply Here"]',
         '.ui-button[value="Apply"]',
-        'input[type="submit"][value="Apply"]'
+        '.ui-button[value="Apply Now"]',
+        '.ui-button[value="Apply Here"]',
+        'input[type="submit"][value="Apply"]',
+        'input[type="submit"][value="Apply Now"]',
+        'input[type="submit"][value="Apply Here"]',
+        'a[href*="apply"]',
+        'a:contains("Apply")',
+        'div[onclick*="apply"]',
+        'div[class*="apply"]',
+        'div[class*="button"]:contains("Apply")',
+        '.apply-button',
+        '.apply-now-button',
+        '.apply-here-button'
       ];
       
       for (const selector of alternativeSelectors) {
@@ -325,23 +329,67 @@ class JobApplicationScraper {
         }
       }
       
-      const applyButtons = await this.page!.$$eval('input[type="submit"], button', (elements: Element[]) => {
+      const applyButtons = await this.page!.$$eval('input[type="submit"], button, a, div[onclick], div[class*="button"], div[class*="apply"]', (elements: Element[]) => {
         return elements
           .filter((el: Element) => {
+            // For divs, check that they don't contain interactive elements
+            if ((el as HTMLElement).tagName === 'DIV') {
+              const hasInteractiveElements = el.querySelector('a, button, input, select, textarea');
+              if (hasInteractiveElements) {
+                return false; // Skip divs that contain interactive elements
+              }
+            }
+            
             const value = (el as HTMLInputElement).value || (el as HTMLElement).textContent || '';
-            return value.toLowerCase().includes('apply');
+            const href = (el as HTMLAnchorElement).href || '';
+            const className = (el as HTMLElement).className || '';
+            const onclick = (el as HTMLElement).getAttribute('onclick') || '';
+            
+            return value.toLowerCase().includes('apply') || 
+                   href.toLowerCase().includes('apply') ||
+                   className.toLowerCase().includes('apply') ||
+                   onclick.toLowerCase().includes('apply');
           })
           .map((el: Element) => ({
             value: (el as HTMLInputElement).value || (el as HTMLElement).textContent || '',
             id: (el as HTMLElement).id,
             name: (el as HTMLInputElement).name,
-            className: (el as HTMLElement).className
+            className: (el as HTMLElement).className,
+            tagName: (el as HTMLElement).tagName,
+            href: (el as HTMLAnchorElement).href || ''
           }));
       });
       
       if (applyButtons.length > 0) {
         console.log('Found Apply buttons by text:', applyButtons);
-        await this.page!.click(`input[value="${applyButtons[0].value}"], button:has-text("${applyButtons[0].value}")`);
+        // Use a more reliable approach to click the button
+        await this.page!.evaluate((buttonValue) => {
+          const buttons = Array.from(document.querySelectorAll('input[type="submit"], button, a, div[onclick], div[class*="button"], div[class*="apply"]'));
+          const button = buttons.find(btn => {
+            // For divs, check that they don't contain interactive elements
+            if ((btn as HTMLElement).tagName === 'DIV') {
+              const hasInteractiveElements = btn.querySelector('a, button, input, select, textarea');
+              if (hasInteractiveElements) {
+                return false; // Skip divs that contain interactive elements
+              }
+            }
+            
+            const value = (btn as HTMLInputElement).value || (btn as HTMLElement).textContent || '';
+            const href = (btn as HTMLAnchorElement).href || '';
+            const className = (btn as HTMLElement).className || '';
+            const onclick = (btn as HTMLElement).getAttribute('onclick') || '';
+            
+            return value.toLowerCase().includes(buttonValue.toLowerCase()) || 
+                   href.toLowerCase().includes(buttonValue.toLowerCase()) ||
+                   className.toLowerCase().includes(buttonValue.toLowerCase()) ||
+                   onclick.toLowerCase().includes(buttonValue.toLowerCase());
+          });
+          if (button) {
+            (button as HTMLElement).click();
+            return true;
+          }
+          return false;
+        }, applyButtons[0].value);
         console.log('Apply button clicked by text');
         return true;
       }
@@ -425,6 +473,7 @@ class JobApplicationScraper {
         
         inputs.forEach(input => {
           if ((input as HTMLInputElement).type === 'hidden' || 
+              (input as HTMLInputElement).type === 'file' ||
               (input as HTMLElement).style.display === 'none' || 
               (input as HTMLElement).style.visibility === 'hidden' ||
               input.hasAttribute('hidden') ||
